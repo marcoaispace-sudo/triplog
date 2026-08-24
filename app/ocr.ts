@@ -144,9 +144,10 @@ export function extractOcrFields(text: string): OcrFields {
     .map(match => `${match[1]}${match[2]}`)
     .filter(value => /[A-Z]/.test(value) && !/^20\d{2}$/.test(value));
   const airportCodes = [...new Set((normalized.toUpperCase().match(/\b[A-Z]{3}\b/g) ?? []).filter(code => AIRPORT_CODES.has(code)))];
-  const hotelLine = lines.find(line => /hotel|resort|inn|hostel|酒店|飯店|旅館|ホテル|리조트|호텔/i.test(line) && line.length <= 100) ?? "";
+  const labeledHotel=normalized.match(/(?:hotel name|property|accommodation|酒店名稱|飯店名稱|施設名|ホテル名|숙소 이름|호텔명)\s*[:：-]?\s*([^\n]{2,100})/i);
+  const hotelLine = cleanValue(labeledHotel?.[1])||(lines.find(line => /hotel|resort|inn|hostel|酒店|飯店|旅館|ホテル|リゾート|리조트|호텔/i.test(line)&&!/address|地址|住所|주소|booking|confirmation/i.test(line)&&line.length<=100)??"");
   const addressLabel = normalized.match(/(?:address|地址|住所|주소)\s*[:：-]?\s*([^\n]{5,140})/i);
-  const postal = normalized.match(/(?:〒\s*)?(\d{3}-\d{4})\b/) ?? normalized.match(/(?:postal|zip|postcode|郵遞區號|우편번호)\D{0,8}(\d{5,7})/i);
+  const postal = normalized.match(/(?:postal(?: code)?|zip(?: code)?|postcode|郵遞區號|郵便番号|우편번호)\D{0,8}(\d{3}-\d{4}|\d{5,7})/i) ?? normalized.match(/〒\s*(\d{3}-\d{4})\b/);
   const phone = normalized.match(/(?:tel(?:ephone)?|phone|電話|전화|연락처)\s*[:：-]?\s*(\+?[\d][\d\s().-]{7,24})/i);
   const dates=extractDates(normalized);
   const times=extractTimes(normalized);
