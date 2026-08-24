@@ -1,6 +1,14 @@
 export type OcrFields = {
   flightNumber: string;
   departureDate: string;
+  outboundDepartureTime: string;
+  outboundArrivalDate: string;
+  outboundArrivalTime: string;
+  returnFlightNumber: string;
+  returnDepartureDate: string;
+  returnDepartureTime: string;
+  returnArrivalDate: string;
+  returnArrivalTime: string;
   origin: string;
   destinationAirport: string;
   hotelName: string;
@@ -12,6 +20,14 @@ export type OcrFields = {
 export const emptyOcrFields: OcrFields = {
   flightNumber: "",
   departureDate: "",
+  outboundDepartureTime: "",
+  outboundArrivalDate: "",
+  outboundArrivalTime: "",
+  returnFlightNumber: "",
+  returnDepartureDate: "",
+  returnDepartureTime: "",
+  returnArrivalDate: "",
+  returnArrivalTime: "",
   origin: "",
   destinationAirport: "",
   hotelName: "",
@@ -75,16 +91,29 @@ function isoDate(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function extractDate(text: string) {
-  let match = text.match(/\b(20\d{2})[年./-]\s*(\d{1,2})[月./-]\s*(\d{1,2})(?:日)?\b/);
-  if (match) return isoDate(Number(match[1]), Number(match[2]), Number(match[3]));
-  match = text.match(/\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s*,?\s*(20\d{2})\b/i);
-  if (match) return isoDate(Number(match[3]), MONTHS[match[2].toLowerCase()], Number(match[1]));
-  match = text.match(/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})\s*,?\s*(20\d{2})\b/i);
-  if (match) return isoDate(Number(match[3]), MONTHS[match[1].toLowerCase()], Number(match[2]));
-  match = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/);
-  if (match) return isoDate(Number(match[3]), Number(match[2]), Number(match[1]));
-  return "";
+function extractDates(text: string) {
+  const found:{index:number;value:string}[]=[];
+  const add=(match:RegExpExecArray,value:string)=>{if(value)found.push({index:match.index,value})};
+  let match:RegExpExecArray|null;
+  const iso=/(20\d{2})[年./-]\s*(\d{1,2})[月./-]\s*(\d{1,2})(?:日)?/g;
+  while((match=iso.exec(text)))add(match,isoDate(Number(match[1]),Number(match[2]),Number(match[3])));
+  const dayFirst=/(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s*,?\s*(20\d{2})/gi;
+  while((match=dayFirst.exec(text)))add(match,isoDate(Number(match[3]),MONTHS[match[2].toLowerCase()],Number(match[1])));
+  const monthFirst=/(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})\s*,?\s*(20\d{2})/gi;
+  while((match=monthFirst.exec(text)))add(match,isoDate(Number(match[3]),MONTHS[match[1].toLowerCase()],Number(match[2])));
+  const numeric=/(\d{1,2})[./-](\d{1,2})[./-](20\d{2})/g;
+  while((match=numeric.exec(text)))add(match,isoDate(Number(match[3]),Number(match[2]),Number(match[1])));
+  return found.sort((a,b)=>a.index-b.index).map(item=>item.value).filter((value,index,list)=>list.indexOf(value)===index).slice(0,4);
+}
+
+function extractTimes(text:string){
+  const withoutNumericDates=text
+    .replace(/20\d{2}[年./-]\s*\d{1,2}[月./-]\s*\d{1,2}(?:日)?/g," ")
+    .replace(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g," ");
+  return [...withoutNumericDates.matchAll(/(?:^|[^\d])([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)/g)]
+    .map(match=>`${String(Number(match[1])).padStart(2,"0")}:${match[2]}`)
+    .filter((value,index,list)=>list.indexOf(value)===index)
+    .slice(0,4);
 }
 
 function cleanValue(value = "") {
@@ -95,7 +124,7 @@ export function extractOcrFields(text: string): OcrFields {
   const normalized = text.replace(/\r/g, "");
   const lines = normalized.split("\n").map(cleanValue).filter(Boolean);
   const flightLabel = normalized.match(/(?:flight|flight no|航班|便名|항공편)[^A-Z0-9]{0,12}([A-Z0-9]{2,3})\s*[- ]?\s*(\d{2,4})/i);
-  const genericFlights = [...normalized.toUpperCase().matchAll(/\b([A-Z0-9]{2,3})\s*[- ]?\s*(\d{2,4})\b/g)]
+  const genericFlights = [...normalized.toUpperCase().matchAll(/\b([A-Z0-9]{2})\s*[- ]?\s*(\d{2,4})\b/g)]
     .map(match => `${match[1]}${match[2]}`)
     .filter(value => /[A-Z]/.test(value) && !/^20\d{2}$/.test(value));
   const airportCodes = [...new Set((normalized.toUpperCase().match(/\b[A-Z]{3}\b/g) ?? []).filter(code => AIRPORT_CODES.has(code)))];
@@ -103,10 +132,24 @@ export function extractOcrFields(text: string): OcrFields {
   const addressLabel = normalized.match(/(?:address|地址|住所|주소)\s*[:：-]?\s*([^\n]{5,140})/i);
   const postal = normalized.match(/(?:〒\s*)?(\d{3}-\d{4})\b/) ?? normalized.match(/(?:postal|zip|postcode|郵遞區號|우편번호)\D{0,8}(\d{5,7})/i);
   const phone = normalized.match(/(?:tel(?:ephone)?|phone|電話|전화|연락처)\s*[:：-]?\s*(\+?[\d][\d\s().-]{7,24})/i);
+  const dates=extractDates(normalized);
+  const times=extractTimes(normalized);
+  const outboundDate=dates[0]??"";
+  const outboundArrivalDate=dates.length>=4?(dates[1]??outboundDate):outboundDate;
+  const returnDepartureDate=dates.length>=4?(dates[2]??""):(dates[1]??"");
+  const returnArrivalDate=dates.length>=4?(dates[3]??returnDepartureDate):returnDepartureDate;
   return {
     ...emptyOcrFields,
     flightNumber: flightLabel ? `${flightLabel[1]}${flightLabel[2]}`.toUpperCase() : (genericFlights[0] ?? ""),
-    departureDate: extractDate(normalized),
+    departureDate: outboundDate,
+    outboundDepartureTime: times[0]??"",
+    outboundArrivalDate,
+    outboundArrivalTime: times[1]??"",
+    returnFlightNumber: genericFlights.find(value=>value!==(flightLabel?`${flightLabel[1]}${flightLabel[2]}`.toUpperCase():genericFlights[0]))??"",
+    returnDepartureDate,
+    returnDepartureTime: times[2]??"",
+    returnArrivalDate,
+    returnArrivalTime: times[3]??"",
     origin: airportCodes[0] ?? "",
     destinationAirport: airportCodes[1] ?? "",
     hotelName: cleanValue(hotelLine),
