@@ -15,6 +15,10 @@ export type OcrFields = {
   address: string;
   postalCode: string;
   phone: string;
+  checkInDate: string;
+  checkInTime: string;
+  checkOutDate: string;
+  checkOutTime: string;
 };
 
 export const emptyOcrFields: OcrFields = {
@@ -34,6 +38,10 @@ export const emptyOcrFields: OcrFields = {
   address: "",
   postalCode: "",
   phone: "",
+  checkInDate: "",
+  checkInTime: "",
+  checkOutDate: "",
+  checkOutTime: "",
 };
 
 type OcrLoggerMessage = {progress?:number;status:string};
@@ -120,6 +128,14 @@ function cleanValue(value = "") {
   return value.replace(/\s+/g, " ").replace(/^[\s:：-]+|[\s|]+$/g, "").trim();
 }
 
+function extractLabeledDateTime(text:string,label:RegExp){
+  const lines=text.split("\n");
+  const lineIndex=lines.findIndex(line=>label.test(line));
+  if(lineIndex<0)return {date:"",time:""};
+  const nearby=lines.slice(lineIndex,Math.min(lines.length,lineIndex+3)).join(" ");
+  return {date:extractDates(nearby)[0]??"",time:extractTimes(nearby)[0]??""};
+}
+
 export function extractOcrFields(text: string): OcrFields {
   const normalized = text.replace(/\r/g, "");
   const lines = normalized.split("\n").map(cleanValue).filter(Boolean);
@@ -134,6 +150,8 @@ export function extractOcrFields(text: string): OcrFields {
   const phone = normalized.match(/(?:tel(?:ephone)?|phone|電話|전화|연락처)\s*[:：-]?\s*(\+?[\d][\d\s().-]{7,24})/i);
   const dates=extractDates(normalized);
   const times=extractTimes(normalized);
+  const checkIn=extractLabeledDateTime(normalized,/(?:check[ -]?in|入住|チェックイン|체크인)/i);
+  const checkOut=extractLabeledDateTime(normalized,/(?:check[ -]?out|退房|チェックアウト|체크아웃)/i);
   const outboundDate=dates[0]??"";
   const outboundArrivalDate=dates.length>=4?(dates[1]??outboundDate):outboundDate;
   const returnDepartureDate=dates.length>=4?(dates[2]??""):(dates[1]??"");
@@ -156,6 +174,10 @@ export function extractOcrFields(text: string): OcrFields {
     address: cleanValue(addressLabel?.[1]),
     postalCode: cleanValue(postal?.[1]),
     phone: cleanValue(phone?.[1]),
+    checkInDate: checkIn.date,
+    checkInTime: checkIn.time,
+    checkOutDate: checkOut.date,
+    checkOutTime: checkOut.time,
   };
 }
 
