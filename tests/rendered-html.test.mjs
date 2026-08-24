@@ -28,4 +28,6 @@ test("renders the TripLog application shell", async () => {
   assert.match(html, /全部旅程/);
   assert.match(html, /下一站/);
   assert.match(html, /設定/);
+  assert.match(html, /尚未加入行程/);
+  assert.doesNotMatch(html, /築地場外市場|teamLab Borderless|銀座 鳥よし/);
 });
