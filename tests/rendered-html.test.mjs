@@ -27,4 +27,5 @@ test("renders the TripLog application shell", async () => {
   assert.match(html, /<title>旅記 TripLog<\/title>/i);
   assert.match(html, /全部旅程/);
   assert.match(html, /下一站/);
+  assert.match(html, /設定/);
 });
