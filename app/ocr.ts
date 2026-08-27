@@ -182,6 +182,21 @@ export function extractOcrFields(text: string): OcrFields {
   };
 }
 
+export type ReceiptOcrFields = {merchant:string;date:string;amount:string;currency:string;rawText:string};
+
+export function extractReceiptOcrFields(text:string):ReceiptOcrFields{
+  const normalized=text.replace(/\r/g,"");
+  const lines=normalized.split("\n").map(cleanValue).filter(Boolean);
+  const ignored=/^(receipt|invoice|tax invoice|收據|發票|영수증|領収書|tel|電話|address|地址)\b/i;
+  const merchant=lines.find(line=>line.length>=2&&line.length<=70&&!ignored.test(line)&&!/^\d[\d\s./:-]+$/.test(line))??"";
+  const labeled=[...normalized.matchAll(/(?:grand\s*total|amount\s*due|total|合計|總計|總額|應付|합계|총액|お会計|合計金額)\s*[:：]?\s*(?:HKD|HK\$|USD|US\$|JPY|¥|KRW|₩|TWD|NT\$|\$)?\s*([\d,.]+)/gi)];
+  const fallback=[...normalized.matchAll(/(?:HKD|HK\$|USD|US\$|JPY|¥|KRW|₩|TWD|NT\$|\$)\s*([\d,.]+)/gi)];
+  const values=(labeled.length?labeled:fallback).map(match=>Number(match[1].replace(/,/g,""))).filter(value=>Number.isFinite(value)&&value>0);
+  const amount=values.length?String(values.at(-1)):"";
+  const currency=/HKD|HK\$/i.test(normalized)?"HKD":/USD|US\$/i.test(normalized)?"USD":/JPY|¥|円/.test(normalized)?"JPY":/KRW|₩|원/.test(normalized)?"KRW":/TWD|NT\$/i.test(normalized)?"TWD":"HKD";
+  return {merchant,date:extractDates(normalized)[0]??"",amount,currency,rawText:normalized};
+}
+
 export function ocrLanguages(destination: string) {
   const place = destination.toLowerCase();
   if (/日本|東京|大阪|京都|福岡|札幌|沖繩|名古屋|神戶|奈良|北海道|tokyo|osaka|kyoto|japan/.test(place)) return ["eng", "jpn"];
