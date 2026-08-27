@@ -9,6 +9,14 @@ export function localTodayDateOnly(now=new Date()){
   return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
 }
 
+export function homeScheduleDate(startDate:string,endDate:string,scheduledDates:string[],today:string){
+  if(today<startDate)return startDate;
+  if(today>endDate)return endDate;
+  const validDates=[...new Set(scheduledDates.filter(date=>date>=startDate&&date<=endDate))].sort();
+  if(validDates.includes(today))return today;
+  return validDates.find(date=>date>today)??today;
+}
+
 export function formatDateLabel(value:string){
   const date=parseDateOnly(value);
   return `${date.getUTCMonth()+1}月${date.getUTCDate()}日`;
