@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {extractOcrFields} from "../app/ocr.ts";
+import {extractOcrFields,extractReceiptOcrFields} from "../app/ocr.ts";
 
 test("extracts labeled hotel and stay details before online lookup",()=>{
   const result=extractOcrFields(`
@@ -17,4 +17,17 @@ Check-out: 2026-09-07 12:00
   assert.equal(result.checkInTime,"15:00");
   assert.equal(result.checkOutDate,"2026-09-07");
   assert.equal(result.checkOutTime,"12:00");
+});
+
+test("extracts conservative receipt fields for confirmation",()=>{
+  const result=extractReceiptOcrFields(`
+Seoul Kitchen
+Date: 03/09/2026
+Subtotal KRW 42,000
+TOTAL KRW 46,200
+  `);
+  assert.equal(result.merchant,"Seoul Kitchen");
+  assert.equal(result.date,"2026-09-03");
+  assert.equal(result.amount,"46200");
+  assert.equal(result.currency,"KRW");
 });
