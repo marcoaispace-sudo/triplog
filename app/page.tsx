@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import { createOcrWorker, emptyOcrFields, extractOcrFields, ocrLanguages, type OcrFields } from "./ocr";
-import { daysUntilDate, formatDateLabel, localTodayDateOnly, tripDateRange, tripDayCount, weekdayDateLabel } from "./date-utils";
+import { daysUntilDate, formatDateLabel, homeScheduleDate, localTodayDateOnly, tripDateRange, tripDayCount, weekdayDateLabel } from "./date-utils";
 import { placesErrorMessage, searchHotels, searchNearbyPlaces, type HotelPlaceResult, type NearbyPlaceResult } from "./google-places";
 
 type IconName = "home"|"check"|"calendar"|"wallet"|"user"|"plane"|"receipt"|"pin"|"arrow"|"bell"|"users"|"sparkle"|"upload"|"close"|"camera"|"hotel"|"map"|"cloud"|"download"|"shield"|"plus"|"edit"|"archive"|"trash"|"restore"|"search"|"copy"|"share";
@@ -114,6 +114,7 @@ export default function Home(){
   const [pickedFile,setPickedFile]=useState<File|null>(null);
   const [uploadBusy,setUploadBusy]=useState(false);
   const [selectedDate,setSelectedDate]=useState("");
+  const [today,setToday]=useState(()=>localTodayDateOnly());
   const [editingItineraryId,setEditingItineraryId]=useState<string|null>(null);
   const [itineraryPlan,setItineraryPlan]=useState<"main"|"backup">("main");
   const [draggingBackupId,setDraggingBackupId]=useState<string|null>(null);
@@ -156,6 +157,7 @@ export default function Home(){
     if("serviceWorker" in navigator){const basePath=process.env.NEXT_PUBLIC_BASE_PATH??"";navigator.serviceWorker.register(`${basePath}/sw.js`).catch(()=>undefined)}
     return()=>window.clearTimeout(timer);
   },[]);
+  useEffect(()=>{const timer=window.setInterval(()=>setToday(localTodayDateOnly()),60_000);return()=>window.clearInterval(timer)},[]);
   useEffect(()=>{if(!hydrated)return;window.localStorage.setItem(TRIPS_KEY,JSON.stringify(trips));window.localStorage.setItem(ACTIVE_TRIP_KEY,activeTripId)},[trips,activeTripId,hydrated]);
 
   useEffect(()=>{
@@ -248,7 +250,7 @@ export default function Home(){
   const dates=useMemo(()=>tripDates(activeTrip),[activeTrip]);
   const shownDate=dates.includes(selectedDate)?selectedDate:activeTrip.startDate;
   const dayItems=useMemo(()=>(activeTrip.itinerary??[]).filter(item=>item.plan!=="backup"&&item.date===shownDate).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")),[activeTrip.itinerary,shownDate]);
-  const homeDate=useMemo(()=>dates.find(date=>(activeTrip.itinerary??[]).some(item=>item.plan!=="backup"&&item.date===date))??activeTrip.startDate,[activeTrip.itinerary,activeTrip.startDate,dates]);
+  const homeDate=useMemo(()=>homeScheduleDate(activeTrip.startDate,activeTrip.endDate,(activeTrip.itinerary??[]).filter(item=>item.plan!=="backup").map(item=>item.date),today),[activeTrip.endDate,activeTrip.itinerary,activeTrip.startDate,today]);
   const homeDayItems=useMemo(()=>(activeTrip.itinerary??[]).filter(item=>item.plan!=="backup"&&item.date===homeDate).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")),[activeTrip.itinerary,homeDate]);
   const backupItems=useMemo(()=>(activeTrip.itinerary??[]).filter(item=>item.plan==="backup").sort((a,b)=>a.type.localeCompare(b.type)||a.title.localeCompare(b.title)),[activeTrip.itinerary]);
   const editingItinerary=useMemo(()=>(activeTrip.itinerary??[]).find(item=>item.id===editingItineraryId)??null,[activeTrip.itinerary,editingItineraryId]);
@@ -416,7 +418,7 @@ export default function Home(){
     {active==="設定"&&<section className="screen-content"><div className="page-title"><div><p>個人使用</p><h2>設定</h2></div></div><article className="profile-card"><span>{user?(user.email?.slice(0,2).toUpperCase()??"MT"):"MT"}</span><div><strong>{user?.user_metadata?.full_name??(user?"TripLog 使用者":"Man Tat Ho")}</strong><p>{user?.email??"登入後啟用跨裝置同步"}</p></div><Icon name={user?"shield":"user"} size={19}/></article>
       {!user&&<section className="auth-card"><div><p>Supabase 私人帳戶</p><h3>{authMode==="signIn"?"登入並同步旅程":"建立 TripLog 登入帳戶"}</h3><span>呢個登入只供 TripLog App 使用，與 Supabase Dashboard 帳戶分開。</span></div><form className="auth-form" onSubmit={submitAuth}><label><span>電郵</span><input type="email" autoComplete="email" value={authEmail} onChange={event=>setAuthEmail(event.target.value)} required/></label><label><span>密碼</span><input type="password" autoComplete={authMode==="signIn"?"current-password":"new-password"} minLength={6} value={authPassword} onChange={event=>setAuthPassword(event.target.value)} required/></label><button type="submit" disabled={authBusy||!isSupabaseConfigured}>{authBusy?"處理中…":authMode==="signIn"?"登入並開始同步":"建立帳戶"}</button></form>{authMessage&&<p className="auth-message" role="status">{authMessage}</p>}<button className="auth-switch" onClick={()=>{setAuthMode(authMode==="signIn"?"signUp":"signIn");setAuthMessage("")}}>{authMode==="signIn"?"首次使用？建立帳戶":"已有帳戶？返回登入"}</button></section>}
       {user&&<section className="auth-card signed-in"><div><p>Supabase 私人帳戶</p><h3>{cloudState==="synced"?"雲端同步正常":cloudState==="connecting"?"正在同步資料":"雲端暫時未能同步"}</h3><span>本機旅程會保留作離線副本；重新連線後自動同步。</span></div>{authMessage&&<p className="auth-message" role="status">{authMessage}</p>}<button className="sign-out-button" onClick={signOut}>登出 Supabase</button></section>}
-      <h3 className="group-title">資料與同步</h3><div className="settings-list"><button onClick={()=>toast(user?cloudState==="synced"?"所有旅程已安全同步":"正在重新同步":"請先在上方登入 Supabase")}><span className="setting-icon blue"><Icon name="cloud"/></span><div><strong>雲端同步</strong><small>{user?cloudState==="synced"?"旅程、行程、準備及共享資料已同步":"連接中，仍保留本機資料":"未登入・目前只儲存在此裝置"}</small></div><span className={cloudState==="synced"?"status-ok":"status-pending"}>{cloudState==="synced"?"正常":cloudState==="connecting"?"同步中":"待登入"}</span></button><button onClick={()=>toast(user?"相片會在裝置上免費辨認，確認後航班時間會加入每日行程":"登入後才可上傳私人文件")}><span className="setting-icon coral"><Icon name="upload"/></span><div><strong>文件儲存與辨認</strong><small>{user?"私人 Storage・航班時間自動加入行程":"登入後啟用私人 Storage"}</small></div><Icon name="arrow" size={18}/></button><button onClick={exportBackup}><span className="setting-icon gold"><Icon name="download"/></span><div><strong>匯出備份</strong><small>下載全部旅程 JSON 備份</small></div><Icon name="arrow" size={18}/></button><button onClick={()=>toast("只有獲邀同行者可編輯行程、準備及記帳；私人文件不會共享")}><span className="setting-icon green"><Icon name="shield"/></span><div><strong>私隱與權限</strong><small>私人文件＋同行者分級權限</small></div><Icon name="arrow" size={18}/></button></div><p className="version-note">旅記 TripLog・同行協作 v0.18</p></section>}
+      <h3 className="group-title">資料與同步</h3><div className="settings-list"><button onClick={()=>toast(user?cloudState==="synced"?"所有旅程已安全同步":"正在重新同步":"請先在上方登入 Supabase")}><span className="setting-icon blue"><Icon name="cloud"/></span><div><strong>雲端同步</strong><small>{user?cloudState==="synced"?"旅程、行程、準備及共享資料已同步":"連接中，仍保留本機資料":"未登入・目前只儲存在此裝置"}</small></div><span className={cloudState==="synced"?"status-ok":"status-pending"}>{cloudState==="synced"?"正常":cloudState==="connecting"?"同步中":"待登入"}</span></button><button onClick={()=>toast(user?"相片會在裝置上免費辨認，確認後航班時間會加入每日行程":"登入後才可上傳私人文件")}><span className="setting-icon coral"><Icon name="upload"/></span><div><strong>文件儲存與辨認</strong><small>{user?"私人 Storage・航班時間自動加入行程":"登入後啟用私人 Storage"}</small></div><Icon name="arrow" size={18}/></button><button onClick={exportBackup}><span className="setting-icon gold"><Icon name="download"/></span><div><strong>匯出備份</strong><small>下載全部旅程 JSON 備份</small></div><Icon name="arrow" size={18}/></button><button onClick={()=>toast("只有獲邀同行者可編輯行程、準備及記帳；私人文件不會共享")}><span className="setting-icon green"><Icon name="shield"/></span><div><strong>私隱與權限</strong><small>私人文件＋同行者分級權限</small></div><Icon name="arrow" size={18}/></button></div><p className="version-note">旅記 TripLog・智能日程 v0.19</p></section>}
 
     <nav className="bottom-nav" aria-label="主要導覽">{[{label:"首頁",icon:"home"},{label:"準備",icon:"check"},{label:"行程",icon:"calendar"},{label:"記帳",icon:"wallet"},{label:"設定",icon:"user"}].map(i=><button key={i.label} className={active===i.label?"active":""} onClick={()=>setActive(i.label as Screen)}><Icon name={i.icon as IconName} size={21}/><span>{i.label}</span></button>)}</nav>
     {notice&&<div className="toast" role="status">{notice}</div>}
