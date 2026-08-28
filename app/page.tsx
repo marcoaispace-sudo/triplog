@@ -5,7 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import { createOcrWorker, emptyOcrFields, extractOcrFields, extractReceiptOcrFields, ocrLanguages, type OcrFields } from "./ocr";
 import { daysUntilDate, formatDateLabel, homeScheduleDate, localTodayDateOnly, tripDateRange, tripDayCount, weekdayDateLabel } from "./date-utils";
-import { placesErrorMessage, searchHotels, searchNearbyPlaces, type HotelPlaceResult, type NearbyPlaceResult } from "./google-places";
+import { findPlaceCoordinates, placesErrorMessage, searchHotels, searchNearbyPlaces, type HotelPlaceResult, type NearbyPlaceResult } from "./google-places";
 import { loadDailyWeather, weatherDescription, type DailyWeather } from "./weather";
 
 type IconName = "home"|"check"|"calendar"|"wallet"|"user"|"plane"|"receipt"|"pin"|"arrow"|"bell"|"users"|"sparkle"|"upload"|"close"|"camera"|"hotel"|"map"|"route"|"cloud"|"download"|"shield"|"plus"|"edit"|"archive"|"trash"|"restore"|"search"|"copy"|"share"|"eye";
@@ -27,6 +27,7 @@ type Trip = {id:string;name:string;destination:string;startDate:string;endDate:s
 type TripRow = {id:string;name:string;destination_city:string|null;start_date:string|null;end_date:string|null;status:string;notes:string|null;created_at:string;deleted_at:string|null;access_role?:TripAccess};
 type Collaborator = {email:string;status:"active"|"pending";joined_at:string};
 type InviteShare = {email:string;url:string};
+type MapChoice = {mode:"place";item:ItineraryItem}|{mode:"directions";from:ItineraryItem;to:ItineraryItem};
 
 const TRIPS_KEY="triplog.trips.v1";
 const ACTIVE_TRIP_KEY="triplog.activeTrip.v1";
@@ -131,6 +132,9 @@ export default function Home(){
   const [active,setActive]=useState<Screen>("首頁");
   const [notice,setNotice]=useState("");
   const [modal,setModal]=useState<ModalType>(null);
+  const [mapChoice,setMapChoice]=useState<MapChoice|null>(null);
+  const [mapChoiceBusy,setMapChoiceBusy]=useState(false);
+  const [mapChoiceMessage,setMapChoiceMessage]=useState("");
   const [picked,setPicked]=useState("");
   const [pickedFile,setPickedFile]=useState<File|null>(null);
   const [uploadBusy,setUploadBusy]=useState(false);
@@ -344,8 +348,43 @@ export default function Home(){
   const saveItineraryItem=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const data=new FormData(event.currentTarget);const plan=itineraryPlan;const date=plan==="main"?String(data.get("date")||shownDate):"";const time=plan==="main"?String(data.get("time")||""):"";const title=String(data.get("title")||"").trim();const type=String(data.get("type")||"行程");const note=String(data.get("note")||"").trim();const location=String(data.get("location")||"").trim();if(!title){toast("請填寫行程名稱");return}if(plan==="main"&&(!date||!time)){toast("主線行程需要日期及時間");return}const color:ItineraryItem["color"]=["餐廳","餐飲"].includes(type)?"coral":type==="交通"?"gold":"blue";const item:ItineraryItem={id:editingItineraryId??crypto.randomUUID(),date,time,title,note,type,color,location,plan};setTrips(current=>current.map(trip=>{if(trip.id!==activeTrip.id)return trip;const itinerary=trip.itinerary??[];return {...trip,itinerary:editingItineraryId?itinerary.map(existing=>existing.id===editingItineraryId?item:existing):[...itinerary,item]}}));if(plan==="main")setSelectedDate(date);setEditingItineraryId(null);setModal(null);setActive("行程");toast(editingItineraryId?"行程內容已更新並準備同步":plan==="backup"?"已加入備案；每一日都會顯示":"行程已加入並準備同步")};
   const deleteItineraryItem=(id:string)=>{const item=(activeTrip.itinerary??[]).find(existing=>existing.id===id);if(!item)return;if(!window.confirm(`確定刪除「${item.title}」？\n刪除後將無法復原。`))return;setTrips(current=>current.map(trip=>trip.id===activeTrip.id?{...trip,itinerary:(trip.itinerary??[]).filter(existing=>existing.id!==id)}:trip));toast(item.plan==="backup"?"備案行程已刪除":"行程項目已刪除")};
   const moveBackupToMain=(id:string,date=shownDate)=>{setTrips(current=>current.map(trip=>trip.id===activeTrip.id?{...trip,itinerary:(trip.itinerary??[]).map(item=>item.id===id?{...item,plan:"main",date,time:""}:item)}:trip));setDraggingBackupId(null);setBackupOverMain(false);toast(`已加入第${Math.max(1,dates.indexOf(date)+1)}日；時間待定，可按編輯補上`)};
-  const openMap=(item:ItineraryItem)=>{const query=(item.location||`${item.title} ${activeTrip.destination}`).trim();const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;window.open(url,"_blank","noopener,noreferrer")};
-  const openDirections=(from:ItineraryItem,to:ItineraryItem)=>{const origin=(from.location||`${from.title} ${activeTrip.destination}`).trim();const destination=(to.location||`${to.title} ${activeTrip.destination}`).trim();const url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;window.open(url,"_blank","noopener,noreferrer")};
+  const openMap=(item:ItineraryItem)=>{setMapChoiceMessage("");setMapChoice({mode:"place",item})};
+  const openDirections=(from:ItineraryItem,to:ItineraryItem)=>{setMapChoiceMessage("");setMapChoice({mode:"directions",from,to})};
+  const launchMap=async(provider:"google"|"naver")=>{
+    if(!mapChoice||mapChoiceBusy)return;
+    const queryFor=(item:ItineraryItem)=>(item.location||`${item.title} ${activeTrip.destination}`).trim();
+    if(provider==="google"){
+      const url=mapChoice.mode==="place"
+        ?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(queryFor(mapChoice.item))}`
+        :`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(queryFor(mapChoice.from))}&destination=${encodeURIComponent(queryFor(mapChoice.to))}`;
+      window.open(url,"_blank","noopener,noreferrer");
+      setMapChoice(null);
+      return;
+    }
+    if(mapChoice.mode==="place"){
+      window.open(`https://map.naver.com/p/search/${encodeURIComponent(queryFor(mapChoice.item))}`,"_blank","noopener,noreferrer");
+      setMapChoice(null);
+      return;
+    }
+    const popup=window.open("about:blank","_blank");
+    setMapChoiceBusy(true);
+    setMapChoiceMessage("正在定位上一站及目前行程…");
+    try{
+      const originName=queryFor(mapChoice.from);
+      const destinationName=queryFor(mapChoice.to);
+      const [origin,destination]=await Promise.all([
+        findPlaceCoordinates(originName,GOOGLE_MAPS_KEY),
+        findPlaceCoordinates(destinationName,GOOGLE_MAPS_KEY),
+      ]);
+      if(!origin||!destination)throw new Error("未能準確定位其中一個地點");
+      const url=`https://map.naver.com/p/directions/${origin.lng},${origin.lat},${encodeURIComponent(originName)}/${destination.lng},${destination.lat},${encodeURIComponent(destinationName)}/-/transit`;
+      if(popup)popup.location.href=url;else window.open(url,"_blank","noopener,noreferrer");
+      setMapChoice(null);
+    }catch(error){
+      if(popup)popup.close();
+      setMapChoiceMessage(`${error instanceof Error?error.message:"Naver Map 路線暫時未能開啟"}；可改用 Google Maps，或補齊兩個行程地址。`);
+    }finally{setMapChoiceBusy(false)}
+  };
   const openNearbyRecommendations=async()=>{
     const base=(activeTrip.hotelDetails?.address||activeTrip.hotelDetails?.name||activeTrip.destination).trim();
     setModal("recommend");setNearbyPlaces([]);setNearbyMessage("");
@@ -553,6 +592,8 @@ export default function Home(){
 
     <nav className="bottom-nav" aria-label="主要導覽">{[{label:"首頁",icon:"home"},{label:"準備",icon:"check"},{label:"行程",icon:"calendar"},{label:"記帳",icon:"wallet"},{label:"設定",icon:"user"}].map(i=><button key={i.label} className={active===i.label?"active":""} onClick={()=>setActive(i.label as Screen)}><Icon name={i.icon as IconName} size={21}/><span>{i.label}</span></button>)}</nav>
     {notice&&<div className="toast" role="status">{notice}</div>}
+
+    {mapChoice&&<div className="modal-backdrop" role="presentation" onMouseDown={()=>{if(!mapChoiceBusy)setMapChoice(null)}}><section className="upload-modal map-provider-modal" role="dialog" aria-modal="true" aria-label="選擇地圖" onMouseDown={event=>event.stopPropagation()}><div className="modal-handle"/><button className="modal-close" disabled={mapChoiceBusy} onClick={()=>setMapChoice(null)}><Icon name="close"/></button><span className="modal-icon map-provider"><Icon name={mapChoice.mode==="place"?"map":"route"} size={29}/></span><h2>選擇地圖</h2><p>{mapChoice.mode==="place"?"開啟行程位置":"顯示上一個行程前往目前行程的路線"}</p><div className="map-provider-actions"><button disabled={mapChoiceBusy} onClick={()=>void launchMap("google")}><strong>Google Maps</strong><small>全球地圖及交通路線</small></button><button disabled={mapChoiceBusy} onClick={()=>void launchMap("naver")}><strong>Naver Map</strong><small>{mapChoice.mode==="directions"?"較適合韓國；會先定位兩個地點":"較適合韓國地址及地點"}</small></button></div>{mapChoiceMessage&&<p className="map-provider-message" role="status">{mapChoiceMessage}</p>}</section></div>}
 
     {modal==="trip"&&<div className="modal-backdrop" role="presentation" onMouseDown={()=>setModal(null)}><form className="upload-modal trip-form" onSubmit={createTrip} onMouseDown={e=>e.stopPropagation()}><div className="modal-handle"/><button type="button" className="modal-close" onClick={()=>setModal(null)}><Icon name="close"/></button><span className="modal-icon ticket"><Icon name="plane" size={30}/></span><h2>新增旅程</h2><p>新旅程會獨立保存，不會覆蓋原有旅程。</p><div className="form-grid"><label><span>目的地 *</span><input name="destination" placeholder="例如：大阪" required/></label><label><span>旅程名稱</span><input name="name" placeholder="預設為「大阪之旅」"/></label><label><span>出發日期 *</span><input name="startDate" type="date" required/></label><label><span>回程日期 *</span><input name="endDate" type="date" required/></label><label><span>出發機場</span><input name="origin" defaultValue="HKG" maxLength={3}/></label><label><span>抵達機場</span><input name="destinationAirport" placeholder="KIX" maxLength={3}/></label><label><span>旅客人數</span><input name="companions" type="number" min="1" defaultValue="1"/></label></div><button className="confirm-button" type="submit">建立旅程</button></form></div>}
     {modal==="companion"&&<div className="modal-backdrop" role="presentation" onMouseDown={()=>setModal(null)}><section className="upload-modal companion-modal" role="dialog" aria-modal="true" aria-label="同行旅伴" onMouseDown={event=>event.stopPropagation()}><div className="modal-handle"/><button className="modal-close" onClick={()=>setModal(null)}><Icon name="close"/></button><span className="modal-icon companion"><Icon name="users" size={29}/></span><h2>同行旅伴</h2><p>{activeTrip.name}・共同編輯每日行程、備案、出發前準備及記帳；私人文件與個人設定不會共享。</p>{isSharedEditor?<div className="shared-access-card"><Icon name="shield" size={21}/><div><strong>你是同行編輯者</strong><span>你的修改會同步給旅程擁有人。想查看對方最新修改，可重新整理共享旅程。</span></div><button onClick={()=>window.location.reload()}>重新整理</button></div>:<><form className="companion-form" onSubmit={inviteCollaborator}><label><span>同行者電郵</span><input type="email" value={collaboratorEmail} onChange={event=>setCollaboratorEmail(event.target.value)} placeholder="name@example.com" required/></label><button type="submit" disabled={collaboratorBusy}>{collaboratorBusy?"建立中…":"發送邀請"}</button></form>{collaboratorMessage&&<p className="companion-message" role="status">{collaboratorMessage}</p>}{inviteShare&&<section className="invite-share-card" aria-label="分享同行邀請"><div><strong>邀請 {inviteShare.email}</strong><small>連結 7 日內有效；對方必須用這個電郵登入。</small></div><input value={inviteShare.url} readOnly aria-label="同行邀請連結" onFocus={event=>event.currentTarget.select()}/><div className="invite-share-actions"><button type="button" onClick={()=>void copyInvitationLink()}><Icon name="copy" size={16}/>複製連結</button><button type="button" className="whatsapp-share" onClick={shareInvitationOnWhatsApp}><Icon name="share" size={16}/>WhatsApp</button></div></section>}<div className="collaborator-list">{collaborators.map(person=><article key={`${person.status}-${person.email}`}><span className={person.status}><Icon name={person.status==="active"?"check":"bell"} size={15}/></span><div><strong>{person.email}</strong><small>{person.status==="active"?"已加入・可共同編輯":"等待接受邀請"}</small></div><div className="collaborator-actions">{person.status==="pending"&&<button className="share-pending" disabled={collaboratorBusy} onClick={()=>void renewInvitationLink(person.email)}><Icon name="share" size={13}/>分享</button>}<button onClick={()=>void revokeCollaborator(person.email)}>{person.status==="active"?"移除":"取消"}</button></div></article>)}{!collaborators.length&&<div className="companion-empty"><Icon name="users" size={21}/><span>尚未加入同行旅伴</span></div>}</div><small className="invite-note">同行者開啟連結並以受邀電郵登入後，旅程才會正式同步。產生新連結會令舊連結失效。</small></>}</section></div>}
