@@ -16,7 +16,7 @@ export type NearbyPlaceResult={
 };
 
 type AddressComponent={longText?:string;types?:string[]};
-type GooglePlace={id?:string;displayName?:string;formattedAddress?:string;nationalPhoneNumber?:string;addressComponents?:AddressComponent[];rating?:number;userRatingCount?:number};
+type GooglePlace={id?:string;displayName?:string;formattedAddress?:string;nationalPhoneNumber?:string;addressComponents?:AddressComponent[];rating?:number;userRatingCount?:number;location?:{lat:()=>number;lng:()=>number}};
 type GoogleMapsWindow=Window&{
   google?:{maps:{importLibrary?:(name:string)=>Promise<{Place:{searchByText:(request:Record<string,unknown>)=>Promise<{places:GooglePlace[]}>}}>}};
 };
@@ -83,6 +83,17 @@ export async function searchHotels(textQuery:string,apiKey:string):Promise<Hotel
     postalCode:place.addressComponents?.find(component=>component.types?.includes("postal_code"))?.longText??"",
     phone:place.nationalPhoneNumber??"",
   })).filter(place=>place.name||place.address);
+}
+
+export async function findPlaceCoordinates(textQuery:string,apiKey:string):Promise<{lat:number;lng:number}|null>{
+  await loadGoogleMaps(apiKey);
+  const googleWindow=window as GoogleMapsWindow;
+  const importLibrary=googleWindow.google?.maps?.importLibrary;
+  if(!importLibrary)throw new Error("Google 地圖服務尚未完成載入");
+  const {Place}=await importLibrary("places");
+  const {places}=await Place.searchByText({textQuery,maxResultCount:1,language:"zh-TW",fields:["location"]});
+  const location=places[0]?.location;
+  return location?{lat:location.lat(),lng:location.lng()}:null;
 }
 
 export async function searchNearbyPlaces(base:string,apiKey:string):Promise<NearbyPlaceResult[]>{
