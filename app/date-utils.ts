@@ -9,12 +9,10 @@ export function localTodayDateOnly(now=new Date()){
   return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
 }
 
-export function homeScheduleDate(startDate:string,endDate:string,scheduledDates:string[],today:string){
+export function homeScheduleDate(startDate:string,endDate:string,_scheduledDates:string[],today:string){
   if(today<startDate)return startDate;
   if(today>endDate)return endDate;
-  const validDates=[...new Set(scheduledDates.filter(date=>date>=startDate&&date<=endDate))].sort();
-  if(validDates.includes(today))return today;
-  return validDates.find(date=>date>today)??today;
+  return today;
 }
 
 export function formatDateLabel(value:string){

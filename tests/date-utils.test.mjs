@@ -16,7 +16,7 @@ test("homepage schedule follows the travel day without skipping across dates",()
   assert.equal(homeScheduleDate("2026-09-03","2026-09-07",scheduled,"2026-09-01"),"2026-09-03");
   assert.equal(homeScheduleDate("2026-09-03","2026-09-07",scheduled,"2026-09-03"),"2026-09-03");
   assert.equal(homeScheduleDate("2026-09-03","2026-09-07",scheduled,"2026-09-04"),"2026-09-04");
-  assert.equal(homeScheduleDate("2026-09-03","2026-09-07",["2026-09-03","2026-09-06"],"2026-09-04"),"2026-09-06");
+  assert.equal(homeScheduleDate("2026-09-03","2026-09-07",["2026-09-03","2026-09-06"],"2026-09-04"),"2026-09-04");
   assert.equal(homeScheduleDate("2026-09-03","2026-09-07",["2026-09-03"],"2026-09-05"),"2026-09-05");
   assert.equal(homeScheduleDate("2026-09-03","2026-09-07",scheduled,"2026-09-10"),"2026-09-07");
 });
