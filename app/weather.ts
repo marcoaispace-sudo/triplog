@@ -11,6 +11,29 @@ export type WeatherLocation = {
   label: string;
 };
 
+const DESTINATION_ALIASES:Array<[RegExp,string]> = [
+  [/首爾|首尔|서울|seoul/i,"Seoul"],
+  [/釜山|부산|busan/i,"Busan"],
+  [/仁川|인천|incheon/i,"Incheon"],
+  [/濟州|济州|제주|jeju/i,"Jeju"],
+  [/大邱|대구|daegu/i,"Daegu"],
+  [/東京|东京|tokyo/i,"Tokyo"],
+  [/大阪|osaka/i,"Osaka"],
+  [/京都|kyoto/i,"Kyoto"],
+  [/福岡|福冈|fukuoka/i,"Fukuoka"],
+  [/札幌|sapporo/i,"Sapporo"],
+  [/沖繩|冲绳|okinawa/i,"Naha"],
+  [/名古屋|nagoya/i,"Nagoya"],
+  [/神戶|神户|kobe/i,"Kobe"],
+  [/奈良|nara/i,"Nara"],
+  [/香港|hong\s*kong/i,"Hong Kong"],
+  [/台北|臺北|taipei/i,"Taipei"],
+  [/台中|臺中|taichung/i,"Taichung"],
+  [/高雄|kaohsiung/i,"Kaohsiung"],
+  [/曼谷|bangkok/i,"Bangkok"],
+  [/新加坡|singapore/i,"Singapore"],
+];
+
 type GeocodingResult = {
   name?: string;
   admin1?: string;
@@ -40,13 +63,13 @@ async function geocode(query:string,signal:AbortSignal):Promise<WeatherLocation|
   return {latitude:result.latitude,longitude:result.longitude,label:[result.name,result.admin1,result.country].filter(Boolean).join("・")};
 }
 
-export async function loadDailyWeather(queries:string[],signal:AbortSignal){
-  let location:WeatherLocation|null=null;
-  for(const query of [...new Set(queries.map(value=>value.trim()).filter(Boolean))]){
-    location=await geocode(query,signal);
-    if(location)break;
-  }
-  if(!location)throw new Error("location not found");
+export function weatherQueryCandidates(queries:string[]){
+  const source=[...new Set(queries.map(value=>value.trim()).filter(Boolean))];
+  const aliases=source.flatMap(query=>DESTINATION_ALIASES.filter(([pattern])=>pattern.test(query)).map(([,alias])=>alias));
+  return [...new Set([...source,...aliases])];
+}
+
+async function forecast(location:WeatherLocation,signal:AbortSignal){
   const url=new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude",String(location.latitude));
   url.searchParams.set("longitude",String(location.longitude));
@@ -61,4 +84,18 @@ export async function loadDailyWeather(queries:string[],signal:AbortSignal){
   const codes=daily?.weather_code??daily?.weathercode??[];
   const days=(daily?.time??[]).map((date,index)=>({date,code:Number(codes[index]),max:Number(daily?.temperature_2m_max?.[index]),min:Number(daily?.temperature_2m_min?.[index])})).filter(day=>Number.isFinite(day.code)&&Number.isFinite(day.max)&&Number.isFinite(day.min));
   return {location,days};
+}
+
+export async function loadDailyWeatherAtCoordinates(latitude:number,longitude:number,label:string,signal:AbortSignal){
+  return forecast({latitude,longitude,label},signal);
+}
+
+export async function loadDailyWeather(queries:string[],signal:AbortSignal){
+  let location:WeatherLocation|null=null;
+  for(const query of weatherQueryCandidates(queries)){
+    location=await geocode(query,signal);
+    if(location)break;
+  }
+  if(!location)throw new Error("location not found");
+  return forecast(location,signal);
 }

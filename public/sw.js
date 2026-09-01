@@ -1,4 +1,4 @@
-const CACHE_NAME = "triplog-v34";
+const CACHE_NAME = "triplog-v35";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
