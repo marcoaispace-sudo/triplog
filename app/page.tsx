@@ -162,10 +162,12 @@ function JourneyReview({trip,onBack,onOpenDocument,onOpenExpense,onOpenMap}:{tri
 }
 
 function TripManager({trips,activeTripId,today,cloudState,isSignedIn,onSelect,onAdd,onArchive,onDelete,onRestore,onCompanions,onReview}:{trips:Trip[];activeTripId:string;today:string;cloudState:CloudState;isSignedIn:boolean;onSelect:(id:string)=>void;onAdd:()=>void;onArchive:(id:string)=>void;onDelete:(id:string)=>void;onRestore:(id:string)=>void;onCompanions:(id:string)=>void;onReview:(id:string)=>void}){
-  const [tab,setTab]=useState<TripState>("active");
+  const hasCurrentTrips=trips.some(trip=>trip.state==="active"&&trip.endDate>=today);
+  const [tab,setTab]=useState<TripState>(()=>hasCurrentTrips?"active":"archived");
   const [query,setQuery]=useState("");
   const isFinished=(trip:Trip)=>trip.state!=="deleted"&&trip.endDate<today;
   const belongsToTab=(trip:Trip,state:TripState)=>state==="active"?trip.state==="active"&&!isFinished(trip):state==="archived"?trip.state==="archived"||isFinished(trip):trip.state==="deleted";
+  useEffect(()=>{if(tab==="active"&&!hasCurrentTrips)setTab("archived")},[hasCurrentTrips,tab]);
   const shown=trips.filter(t=>belongsToTab(t,tab)&&`${t.name} ${t.destination} ${t.origin} ${t.destinationAirport}`.toLowerCase().includes(query.toLowerCase()));
   const labels:Record<TripState,string>={active:"進行中",archived:"已完成",deleted:"最近刪除"};
   return <section className="screen-content trip-manager"><div className="page-title"><div><p>所有資料保留在旅程內</p><h2>我的旅程</h2></div><button className="round-add" onClick={onAdd} aria-label="新增旅程"><Icon name="plus"/></button></div>
@@ -673,7 +675,7 @@ export default function Home(){
   return <main className="app-shell"><div className="phone-app">
     <header className="topbar"><button className="brand-button" onClick={()=>setActive("首頁")} aria-label="返回首頁"><Brand/></button><button className="icon-button" aria-label="通知" onClick={()=>toast("目前沒有新通知")}><Icon name="bell" size={21}/><span className="notification-dot"/></button></header>
 
-    {active==="首頁"&&!currentTrip&&<section className="home-empty-state"><span className="home-empty-icon"><Icon name="plane" size={30}/></span><p>上一段旅程已完成</p><h2>下一站想去邊？</h2><small>首頁已清空；舊旅程完整保留在「全部旅程」的已完成分類。</small><button className="create-trip-primary" onClick={()=>setModal("trip")}><Icon name="plus" size={18}/>新增旅程</button><button className="view-all-trips" onClick={()=>setActive("旅程")}><Icon name="archive" size={17}/>全部旅程</button></section>}
+    {active==="首頁"&&!currentTrip&&<section className="home-empty-state"><span className="home-empty-icon"><Icon name="plane" size={30}/></span><p>上一段旅程已完成</p><h2>下一站想去邊？</h2><small>首頁已清空；舊旅程完整保留在「全部旅程」的已完成分類。</small><button className="create-trip-primary" onClick={()=>setModal("trip")}><Icon name="plus" size={18}/>新增旅程</button><button className="view-all-trips" onClick={()=>setActive("旅程")}><Icon name="archive" size={17}/>全部旅程及回顧</button></section>}
     {active==="首頁"&&currentTrip&&<>
       <section className="greeting"><div><p>晚上好，Man Tat</p><h2>下一站，{activeTrip.destination}。</h2></div><button className="all-trips-button" onClick={()=>setActive("旅程")}>全部旅程 <span>{trips.filter(t=>t.state==="active"&&t.endDate>=today).length}</span></button></section>
       <button className="trip-card trip-card-button" onClick={()=>setActive("旅程")}><div className="trip-card-top"><div><span className="trip-status">{today>=activeTrip.startDate?"旅程進行中":"即將出發"}</span><h3>{activeTrip.name}</h3><p>{dateLabel(activeTrip.startDate)} — {dateLabel(activeTrip.endDate)} · {tripDuration(activeTrip)}日</p></div><div className="countdown"><strong>{Math.max(0,countdown(activeTrip))}</strong><span>{today>=activeTrip.startDate?"旅途中":"日後"}</span></div></div><div className="route-line"><span className="airport">{activeTrip.origin}</span><span className="flight-line"><Icon name="plane" size={17}/></span><span className="airport">{activeTrip.destinationAirport}</span></div><div className="trip-meta"><span><Icon name="users" size={17}/>{activeTrip.companions} 位旅客</span><span>已記錄 <strong>{expenses.length} 筆開支</strong></span></div></button>
